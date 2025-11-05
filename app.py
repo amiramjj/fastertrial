@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
-
+import math  
+    
 # ------------------------------
 # Page Config
 # -------------------------------
@@ -394,7 +395,6 @@ if uploaded_file:
 
     # ---------------- Tab 2: Optimal Matches ----------------
     # ---------------- Preprocessing Step ----------------
-    # Keep only relevant columns
     with tab2:
         client_cols = [
             "client_name", "clientmts_household_type", "clientmts_special_cases",
@@ -415,13 +415,11 @@ if uploaded_file:
         ]
         
         # Split into clients and maids
-        # clients_df = df[client_cols].drop_duplicates(subset=["client_name"]).reset_index(drop=True)
-        # maids_df = df[maid_cols].drop_duplicates(subset=["maid_id"]).reset_index(drop=True)
         clients_df = master_df[client_cols].drop_duplicates(subset=["client_name"]).reset_index(drop=True)
         maids_df = master_df[maid_cols].drop_duplicates(subset=["maid_id"]).reset_index(drop=True)
         
         st.write(f" Deduplication complete: {len(clients_df)} unique clients, {len(maids_df)} unique maids.")
-
+    
         # -------------------------------
         # Download buttons for deduplicated data
         # -------------------------------
@@ -438,51 +436,54 @@ if uploaded_file:
             file_name="deduplicated_maids.csv",
             mime="text/csv"
         )
-
+    
         # Preview clients_df
         st.write("### Clients (deduplicated)")
-        st.dataframe(clients_df.head(20))   # show first 20 rows
+        st.dataframe(clients_df.head(20))
         st.write("Client columns:", clients_df.columns.tolist())
         
         # Preview maids_df
         st.write("### Maids (deduplicated)")
-        st.dataframe(maids_df.head(20))   # show first 20 rows
+        st.dataframe(maids_df.head(20))
         st.write("Maid columns:", maids_df.columns.tolist())
-
+    
         st.write("### Optimal Matches (Top 2 Maids per Client)")
-
-        
+    
+        # -------------------------------
+        # Batched optimal matching function
+        # -------------------------------
         @st.cache_data
         def compute_optimal_matches_fast(clients_df, maids_df, batch_size=200):
             results = []
             n_batches = math.ceil(len(clients_df) / batch_size)
-        
+    
             for i in range(n_batches):
                 start = i * batch_size
                 end = min((i + 1) * batch_size, len(clients_df))
                 subset_clients = clients_df.iloc[start:end]
-        
+    
                 st.write(f"🔄 Processing batch {i+1}/{n_batches} ({len(subset_clients)} clients)...")
-        
+    
                 # Cartesian join for this batch only
                 merged = subset_clients.assign(key=1).merge(maids_df.assign(key=1), on="key").drop("key", axis=1)
-        
+    
                 # Apply the scoring function
                 merged[["Final Score %", "Theme Reasons", "Bonus Reasons"]] = merged.apply(
                     lambda row: pd.Series(calculate_score(row)[:3]), axis=1
                 )
-        
+    
                 # Pick top 2 maids per client
                 top2 = merged.sort_values(["client_name", "Final Score %"], ascending=[True, False])\
                              .groupby("client_name").head(2)
                 results.append(top2)
-        
+    
             final_df = pd.concat(results, ignore_index=True)
             st.success("✅ All batches processed successfully!")
             return final_df
-
     
+        # -------------------------------
         # Run cached optimal matches
+        # -------------------------------
         optimal_df = compute_optimal_matches_fast(clients_df, maids_df, batch_size=200)
         st.dataframe(optimal_df)
     
@@ -511,6 +512,7 @@ if uploaded_file:
             "optimal_matches.csv",
             "text/csv"
         )
+
     
 
 
